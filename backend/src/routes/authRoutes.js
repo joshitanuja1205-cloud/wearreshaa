@@ -1,22 +1,43 @@
 const express = require("express");
 
 const {
-  registerUser,
-  loginUser,
   getMe,
+  googleLogin,
+  googleCallback,
 } = require("../controllers/authController");
 
-const { protect } = require("../middleware/authMiddleware");
+const {
+  protect,
+} = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-// REGISTER
-router.post("/register", registerUser);
+// =====================================================
+// CURRENT USER
+// =====================================================
 
-// LOGIN
-router.post("/login", loginUser);
+router.get(
+  "/me",
+  protect,
+  getMe
+);
 
-// CURRENT USER - PROTECTED
-router.get("/me", protect, getMe);
+// =====================================================
+// GOOGLE LOGIN
+// =====================================================
+
+router.get(
+  "/google",
+  googleLogin
+);
+
+// =====================================================
+// GOOGLE CALLBACK
+// =====================================================
+
+router.get(
+  "/google/callback",
+  googleCallback
+);
 
 module.exports = router;

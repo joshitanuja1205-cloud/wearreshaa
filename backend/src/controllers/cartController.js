@@ -29,6 +29,82 @@ const getCart = async (req, res) => {
   }
 };
 
+const syncCart = async (req, res) => {
+  try {
+    const { items } = req.body;
+
+    if (!Array.isArray(items)) {
+      return res.status(400).json({
+        success: false,
+        message: "Cart items must be an array",
+      });
+    }
+
+    const validItems = [];
+
+    for (const item of items) {
+      if (
+        !item.productId ||
+        !item.quantity ||
+        !item.size ||
+        !item.color
+      ) {
+        continue;
+      }
+
+      const product = await Product.findById(item.productId);
+
+      if (!product || !product.isActive) {
+        continue;
+      }
+
+      validItems.push({
+        product: product._id,
+        customizationId: item.customizationId || null,
+        quantity: Number(item.quantity),
+        size: item.size,
+        color: {
+          name: item.color.name,
+          hex: item.color.hex,
+        },
+      });
+    }
+
+    let cart = await Cart.findOne({
+      user: req.user._id,
+    });
+
+    if (!cart) {
+      cart = new Cart({
+        user: req.user._id,
+        items: validItems,
+      });
+    } else {
+      cart.items = validItems;
+    }
+
+    await cart.save();
+
+    await cart.populate("items.product");
+
+    res.status(200).json({
+      success: true,
+      message: "Cart synced successfully",
+      cart,
+    });
+  } catch (error) {
+    console.error(
+      "Sync cart error:",
+      error.message
+    );
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to sync cart",
+    });
+  }
+};
+
 // ================= ADD TO CART =================
 
 const addToCart = async (req, res) => {
@@ -145,7 +221,10 @@ const updateCartItem = async (req, res) => {
 
     // Update quantity
     item.quantity = Number(quantity);
-
+console.log(
+  "🧩 CART BEFORE SAVE:",
+  JSON.stringify(cart.toObject(), null, 2)
+);
     await cart.save();
 
     await cart.populate("items.product");
@@ -253,6 +332,7 @@ const clearCart = async (req, res) => {
 
 module.exports = {
   getCart,
+  syncCart,
   addToCart,
   updateCartItem,
   removeCartItem,

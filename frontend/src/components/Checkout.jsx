@@ -1,142 +1,537 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import LoginModal from "../components/LoginModal";
+import api from "../services/api";
 
 function Checkout() {
   const navigate = useNavigate();
 
-  // ================= LOGIN POPUP =================
+  // =====================================================
+  // AUTHENTICATION
+  // =====================================================
 
-  const [showLogin, setShowLogin] = useState(() => {
-  const savedCustomer = sessionStorage.getItem("reshAA-verifiedCustomer");
-  return !savedCustomer;
-});
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showLogin, setShowLogin] = useState(false);
 
-const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
-  const savedCustomer =
-    sessionStorage.getItem("reshAA-verifiedCustomer");
+  const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
+    const savedCustomer =
+      sessionStorage.getItem("reshAA-verifiedCustomer");
 
-  return savedCustomer
-    ? JSON.parse(savedCustomer)
-    : null;
-});
+    return savedCustomer
+      ? JSON.parse(savedCustomer)
+      : null;
+  });
 
-  // ================= CART =================
-
-  const [cart, setCart] = useState([]);
-
-  // ================= CUSTOMER FORM =================
-
-  const [form, setForm] = useState(() => {
-  const savedForm = sessionStorage.getItem("reshAA-checkoutForm");
-
-  return savedForm
-    ? JSON.parse(savedForm)
-    : {
-        name: "",
-        phone: "",
-        email: "",
-        address: "",
-        city: "",
-        state: "",
-        pincode: "",
-      };
-});
-  useEffect(() => {
-  if (!verifiedCustomer) return;
-
-  setForm((prev) => ({
-    ...prev,
-    phone: verifiedCustomer.phone || prev.phone,
-    email: verifiedCustomer.email || prev.email,
-  }));
-}, [verifiedCustomer]);
-
-  // ================= PAYMENT =================
-
-  const [paymentMethod, setPaymentMethod] = useState("cod");
-
-  // ================= LOAD CART =================
+  // =====================================================
+  // CHECK EXISTING LOGIN
+  // =====================================================
 
   useEffect(() => {
-    const savedCart =
-      JSON.parse(localStorage.getItem("reshAA-cart")) || [];
+    const checkAuthentication = async () => {
+      const token = localStorage.getItem("token");
 
-    setCart(savedCart);
+      console.log("🟣 CHECKOUT TOKEN EXISTS:", !!token);
+
+      // -------------------------------------------------
+      // NO TOKEN
+      // -------------------------------------------------
+
+      if (!token) {
+        setShowLogin(true);
+        setAuthLoading(false);
+        return;
+      }
+
+      // -------------------------------------------------
+      // VERIFY TOKEN WITH BACKEND
+      // -------------------------------------------------
+
+      try {
+        const response = await api.get("/auth/me");
+
+        console.log(
+          "🟣 CHECKOUT AUTH RESPONSE:",
+          response.data
+        );
+
+        if (
+          response.data.success &&
+          response.data.user
+        ) {
+          const user = response.data.user;
+
+          // -------------------------------------------------
+          // DETERMINE LOGIN METHOD
+          // -------------------------------------------------
+
+          let method = "email";
+
+          if (user.googleId) {
+            method = "google";
+          } else if (user.phone) {
+            method = "phone";
+          }
+
+          // -------------------------------------------------
+          // NORMALIZED CUSTOMER
+          // -------------------------------------------------
+
+          const customer = {
+            method,
+
+            id: user._id || user.id,
+
+            name: user.name || "",
+
+            phone: user.phone || "",
+
+            email: user.email || "",
+          };
+
+          // -------------------------------------------------
+          // SAVE CUSTOMER
+          // -------------------------------------------------
+
+          setVerifiedCustomer(customer);
+
+          sessionStorage.setItem(
+            "reshAA-verifiedCustomer",
+            JSON.stringify(customer)
+          );
+
+          setShowLogin(false);
+        } else {
+          console.log(
+            "🔴 CHECKOUT IS OPENING LOGIN POPUP"
+          );
+
+          localStorage.removeItem("token");
+
+          sessionStorage.removeItem(
+            "reshAA-verifiedCustomer"
+          );
+
+          setVerifiedCustomer(null);
+          setShowLogin(true);
+        }
+      } catch (error) {
+        console.error(
+          "Checkout authentication error:",
+          error.response?.data || error
+        );
+
+        localStorage.removeItem("token");
+
+        sessionStorage.removeItem(
+          "reshAA-verifiedCustomer"
+        );
+
+        setVerifiedCustomer(null);
+        setShowLogin(true);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+
+    checkAuthentication();
   }, []);
 
-  // ================= SUBTOTAL =================
+  // =====================================================
+  // CART
+  // =====================================================
+
+  const [cart, setCart] = useState([]);
+  const cartSyncStarted = useRef(false);
+
+  // =====================================================
+  // SYNC LOCAL CART WITH BACKEND
+  // =====================================================
+
+  const syncCartWithBackend = async () => {
+    try {
+      const token = localStorage.getItem("token");
+
+      if (!token) {
+        return;
+      }
+
+      const localCart =
+        JSON.parse(
+          localStorage.getItem("reshAA-cart")
+        ) || [];
+
+      if (localCart.length === 0) {
+        return;
+      }
+
+      console.log(
+        "🟡 Syncing local cart with backend:",
+        localCart
+      );
+
+      const backendItems = localCart
+  .filter((item) => item.productId)
+  .map((item) => ({
+    productId: item.productId,
+    customizationId: item.customizationId || null,
+    quantity: item.quantity,
+    size: item.size,
+    color: item.color,
+  }));
+
+if (backendItems.length === 0) {
+  return;
+}
+
+await api.put("/cart/sync", {
+  items: backendItems,
+});
+
+console.log("🟢 Cart synced exactly with backend");
+
+      console.log(
+        "🟢 Cart synced with backend"
+      );
+    } catch (error) {
+      console.error(
+        "🔴 Cart sync failed:",
+        error.response?.data || error
+      );
+    }
+  };
+
+  // =====================================================
+  // CUSTOMER FORM
+  // =====================================================
+
+  const [form, setForm] = useState(() => {
+    const savedForm =
+      sessionStorage.getItem("reshAA-checkoutForm");
+
+    return savedForm
+      ? JSON.parse(savedForm)
+      : {
+          name: "",
+          phone: "",
+          email: "",
+          address: "",
+          city: "",
+          state: "",
+          pincode: "",
+        };
+  });
+
+  // =====================================================
+  // FILL CUSTOMER INFORMATION
+  // =====================================================
+
+  useEffect(() => {
+    if (!verifiedCustomer) return;
+
+    setForm((prev) => {
+      const updatedForm = {
+        ...prev,
+
+        name:
+          verifiedCustomer.name ||
+          prev.name,
+
+        phone:
+          verifiedCustomer.phone ||
+          prev.phone,
+
+        email:
+          verifiedCustomer.email ||
+          prev.email,
+      };
+
+      sessionStorage.setItem(
+        "reshAA-checkoutForm",
+        JSON.stringify(updatedForm)
+      );
+
+      return updatedForm;
+    });
+  }, [verifiedCustomer]);
+
+  // =====================================================
+  // PAYMENT
+  // =====================================================
+
+  const [paymentMethod, setPaymentMethod] =
+    useState("cod");
+
+  // =====================================================
+  // ORDER SUBMISSION
+  // =====================================================
+
+  const [orderLoading, setOrderLoading] =
+    useState(false);
+
+  // =====================================================
+  // LOAD CART
+  // =====================================================
+
+  useEffect(() => {
+  const loadAndSyncCart = async () => {
+    const savedCart =
+      JSON.parse(
+        localStorage.getItem("reshAA-cart")
+      ) || [];
+
+    setCart(savedCart);
+
+    // Wait until authentication is confirmed
+    if (!verifiedCustomer) {
+      return;
+    }
+
+    // Prevent duplicate sync
+    if (cartSyncStarted.current) {
+      return;
+    }
+
+    cartSyncStarted.current = true;
+
+    await syncCartWithBackend();
+  };
+
+  loadAndSyncCart();
+}, [verifiedCustomer]);
+  // =====================================================
+  // SUBTOTAL
+  // =====================================================
 
   const subtotal = cart.reduce(
     (total, item) =>
-      total + (item.price || item.product?.price || 0) * item.quantity,
+      total +
+      (item.price ||
+        item.product?.price ||
+        0) *
+        item.quantity,
     0
   );
 
-  // ================= SHIPPING =================
+  // =====================================================
+  // SHIPPING
+  // =====================================================
 
-  const shipping = subtotal >= 1999 ? 0 : 99;
+  const shipping =
+    subtotal >= 1999
+      ? 0
+      : 99;
 
-  // ================= TOTAL =================
+  // =====================================================
+  // TOTAL
+  // =====================================================
 
-  const total = subtotal + shipping;
+  const total =
+    subtotal + shipping;
 
-  // ================= FORM CHANGE =================
+  // =====================================================
+  // FORM CHANGE
+  // =====================================================
 
   const handleChange = (e) => {
-  const updatedForm = {
-    ...form,
-    [e.target.name]: e.target.value,
+    const updatedForm = {
+      ...form,
+      [e.target.name]:
+        e.target.value,
+    };
+
+    setForm(updatedForm);
+
+    sessionStorage.setItem(
+      "reshAA-checkoutForm",
+      JSON.stringify(updatedForm)
+    );
   };
 
-  setForm(updatedForm);
+  // =====================================================
+  // PLACE ORDER
+  // =====================================================
 
-  sessionStorage.setItem(
-    "reshAA-checkoutForm",
-    JSON.stringify(updatedForm)
-  );
-};
-  // ================= PLACE ORDER =================
-
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+console.log("🔥🔥🔥 PLACE ORDER CLICKED — handleSubmit RUNNING");
+    if (orderLoading) {
+      return;
+    }
 
     if (cart.length === 0) {
       alert("Your cart is empty.");
       return;
     }
 
-    const orderNumber = `RS${Date.now()
-      .toString()
-      .slice(-6)}`;
+    // -------------------------------------------------
+    // MAKE SURE USER IS AUTHENTICATED
+    // -------------------------------------------------
 
-    const order = {
-      orderNumber,
-      customer: form,
-      items: cart,
-      paymentMethod,
-      subtotal,
-      shipping,
-      total,
-    };
+    const token =
+      localStorage.getItem("token");
 
-    console.log("Order:", order);
+    if (!token || !verifiedCustomer) {
+      setShowLogin(true);
+      return;
+    }
 
-    // Clear cart
-    localStorage.removeItem("reshAA-cart");
+    try {
+      setOrderLoading(true);
 
-    // Update cart count in Navbar
-    window.dispatchEvent(
-      new Event("cartUpdated")
-    );
+      // -------------------------------------------------
+      // SHIPPING ADDRESS
+      // -------------------------------------------------
 
-    // Go to order confirmation page
-    navigate("/order-success", {
-      state: {
-        order,
-      },
-    });
+      const shippingAddress = {
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        address: form.address.trim(),
+        city: form.city.trim(),
+        state: form.state.trim(),
+        pincode: form.pincode.trim(),
+      };
+
+      // -------------------------------------------------
+      // PAYMENT METHOD
+      // Backend expects:
+      // COD / ONLINE
+      // -------------------------------------------------
+
+      const backendPaymentMethod =
+        paymentMethod === "cod"
+          ? "COD"
+          : "ONLINE";
+
+      console.log(
+        "🟡 Creating order in backend..."
+      );
+
+      console.log(
+        "🟡 Shipping address:",
+        shippingAddress
+      );
+
+      console.log(
+        "🟡 Payment method:",
+        backendPaymentMethod
+      );
+
+      // -------------------------------------------------
+      // CREATE REAL ORDER IN MONGODB
+      // -------------------------------------------------
+console.log("🚀🚀🚀 ABOUT TO POST /api/orders");
+console.log("🚀 API BASE URL:", api.defaults.baseURL);
+      const response = await api.post(
+        "/orders",
+        {
+          shippingAddress,
+          paymentMethod:
+            backendPaymentMethod,
+        }
+      );
+
+      console.log(
+        "🟢 ORDER CREATED:",
+        response.data
+      );
+
+      // -------------------------------------------------
+      // VERIFY BACKEND RESPONSE
+      // -------------------------------------------------
+
+      if (
+        !response.data?.success ||
+        !response.data?.order
+      ) {
+        throw new Error(
+          response.data?.message ||
+            "Unable to create order."
+        );
+      }
+
+      const order =
+        response.data.order;
+
+      // -------------------------------------------------
+      // ONLY CLEAR LOCAL CART
+      // AFTER SUCCESSFUL BACKEND ORDER
+      // -------------------------------------------------
+
+      localStorage.removeItem(
+        "reshAA-cart"
+      );
+
+      window.dispatchEvent(
+        new Event("cartUpdated")
+      );
+
+      // -------------------------------------------------
+      // ORDER SUCCESS
+      // -------------------------------------------------
+
+      navigate(
+        "/order-success",
+        {
+          state: {
+            order,
+          },
+        }
+      );
+    } catch (error) {
+      console.error(
+        "🔴 Create order error:",
+        error.response?.data || error
+      );
+
+      alert(
+        error.response?.data?.message ||
+          error.message ||
+          "Unable to place your order. Please try again."
+      );
+    } finally {
+      setOrderLoading(false);
+    }
   };
+
+  // =====================================================
+  // AUTH LOADING
+  // =====================================================
+
+  if (authLoading) {
+    return (
+      <main
+        className="
+          min-h-screen
+          bg-[#f8f6f0]
+          flex
+          items-center
+          justify-center
+        "
+      >
+        <div className="text-center">
+          <p
+            className="
+              font-serif
+              text-3xl
+              text-[#241f1d]
+            "
+          >
+            RESHAA
+          </p>
+
+          <p
+            className="
+              text-sm
+              text-[#827872]
+              mt-3
+            "
+          >
+            Checking your account...
+          </p>
+        </div>
+      </main>
+    );
+  }
 
   // =====================================================
   // EMPTY CART
@@ -154,8 +549,12 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
           px-6
         "
       >
-        <div className="text-center max-w-md">
-
+        <div
+          className="
+            text-center
+            max-w-md
+          "
+        >
           <div
             className="
               w-20
@@ -192,8 +591,9 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
             "
           >
             Your cart is currently empty.
-            Discover something from the RESHAA collection
-            and come back when you're ready.
+            Discover something from the
+            RESHAA collection and come back
+            when you're ready.
           </p>
 
           <Link
@@ -216,7 +616,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
           >
             EXPLORE COLLECTION →
           </Link>
-
         </div>
       </main>
     );
@@ -229,20 +628,37 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
   if (showLogin) {
     return (
       <>
-        <main className="min-h-screen bg-[#f8f6f0]" />
+        <main
+          className="
+            min-h-screen
+            bg-[#f8f6f0]
+          "
+        />
 
         <LoginModal
-  onClose={() => setShowLogin(false)}
-  onVerified={(customer) => {
-  setVerifiedCustomer(customer);
+          redirectAfterLogin="/checkout"
+          onClose={() => {
+            setShowLogin(false);
+            navigate("/cart");
+          }}
+          onVerified={(customer) => {
+            console.log(
+              "Checkout authenticated customer:",
+              customer
+            );
 
-  sessionStorage.setItem(
-    "reshAA-verifiedCustomer",
-    JSON.stringify(customer)
-  );
-}}
-/>
-        
+            setVerifiedCustomer(
+              customer
+            );
+
+            sessionStorage.setItem(
+              "reshAA-verifiedCustomer",
+              JSON.stringify(customer)
+            );
+
+            setShowLogin(false);
+          }}
+        />
       </>
     );
   }
@@ -258,7 +674,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
         bg-[#f8f6f0]
       "
     >
-
       {/* ================================================= */}
       {/* HEADER */}
       {/* ================================================= */}
@@ -273,9 +688,12 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
           pb-10
         "
       >
-
-        <div className="max-w-7xl mx-auto">
-
+        <div
+          className="
+            max-w-7xl
+            mx-auto
+          "
+        >
           <Link
             to="/cart"
             className="
@@ -294,7 +712,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
           </Link>
 
           <div className="mt-8">
-
             <p
               className="
                 text-xs
@@ -327,14 +744,11 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 leading-7
               "
             >
-              You're almost there. Complete your details
-              and we'll take care of the rest.
+              You're almost there. Complete your
+              details and we'll take care of the rest.
             </p>
-
           </div>
-
         </div>
-
       </section>
 
       {/* ================================================= */}
@@ -349,7 +763,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
           pb-24
         "
       >
-
         <form
           onSubmit={handleSubmit}
           className="
@@ -361,9 +774,8 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
             lg:gap-12
           "
         >
-
           {/* ================================================= */}
-          {/* LEFT SIDE */}
+          {/* LEFT */}
           {/* ================================================= */}
 
           <div className="space-y-6">
@@ -380,7 +792,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 md:p-8
               "
             >
-
               <div
                 className="
                   flex
@@ -388,7 +799,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                   gap-4
                 "
               >
-
                 <div
                   className="
                     w-10
@@ -406,7 +816,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 </div>
 
                 <div>
-
                   <h2
                     className="
                       font-serif
@@ -424,11 +833,10 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                       mt-1
                     "
                   >
-                    Where should we send your order updates?
+                    Where should we send your
+                    order updates?
                   </p>
-
                 </div>
-
               </div>
 
               <div
@@ -439,9 +847,9 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                   mt-8
                 "
               >
+                {/* NAME */}
 
                 <div>
-
                   <label className="checkout-label">
                     Full Name
                   </label>
@@ -454,83 +862,86 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                     placeholder="Your full name"
                     className="checkout-input"
                   />
-
                 </div>
 
-                <div className="flex items-center gap-2 mb-2">
-  
- <div>
+                {/* PHONE */}
 
-  <div className="flex items-center justify-between mb-2">
+                <div>
+                  <div
+                    className="
+                      flex
+                      items-center
+                      justify-between
+                      mb-2
+                    "
+                  >
+                    <label className="checkout-label">
+                      Phone Number
+                    </label>
 
-    <label className="checkout-label">
-      Phone Number
-    </label>
+                    {verifiedCustomer?.phone && (
+                      <span
+                        className="
+                          text-sm
+                          text-green-600
+                          font-medium
+                        "
+                      >
+                        ✓ Verified
+                      </span>
+                    )}
+                  </div>
 
-    {verifiedCustomer?.method === "phone" && (
-      <span className="
-        text-sm
-        text-green-600
-        font-medium
-      ">
-        ✓ Verified
-      </span>
-    )}
+                  <input
+                    required
+                    name="phone"
+                    value={form.phone}
+                    onChange={handleChange}
+                    placeholder="+91 XXXXX XXXXX"
+                    type="tel"
+                    className="checkout-input"
+                  />
+                </div>
 
-  </div>
+                {/* EMAIL */}
 
-  <input
-    required
-    name="phone"
-    value={form.phone}
-    onChange={handleChange}
-    placeholder="+91 XXXXX XXXXX"
-    type="tel"
-    className="checkout-input"
-  />
-
-</div>
-</div>
                 <div className="sm:col-span-2">
+                  <div
+                    className="
+                      flex
+                      items-center
+                      justify-between
+                      mb-2
+                    "
+                  >
+                    <label className="checkout-label">
+                      Email Address
+                    </label>
 
-                  <div className="flex items-center gap-2 mb-2">
- <div>
+                    {verifiedCustomer?.email && (
+                      <span
+                        className="
+                          text-sm
+                          text-green-600
+                          font-medium
+                        "
+                      >
+                        ✓ Verified
+                      </span>
+                    )}
+                  </div>
 
-  <div className="flex items-center justify-between mb-2">
-
-    <label className="checkout-label">
-      Email Address
-    </label>
-
-    {verifiedCustomer?.method === "email" && (
-      <span className="
-        text-sm
-        text-green-600
-        font-medium
-      ">
-        ✓ Verified
-      </span>
-    )}
-
-  </div>
-
-  <input
-    required
-    name="email"
-    value={form.email}
-    onChange={handleChange}
-    placeholder="you@gmail.com"
-    type="email"
-    className="checkout-input"
-  />
-
-</div>
-</div>
-
+                  <input
+                    required
+                    name="email"
+                    value={form.email}
+                    onChange={handleChange}
+                    placeholder="you@gmail.com"
+                    type="email"
+                    className="checkout-input"
+                  />
                 </div>
-
               </div>
-
             </div>
 
             {/* ================= ADDRESS ================= */}
@@ -545,7 +956,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 md:p-8
               "
             >
-
               <div
                 className="
                   flex
@@ -553,7 +963,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                   gap-4
                 "
               >
-
                 <div
                   className="
                     w-10
@@ -571,7 +980,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 </div>
 
                 <div>
-
                   <h2
                     className="
                       font-serif
@@ -589,17 +997,19 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                       mt-1
                     "
                   >
-                    Where should your RESHAA package arrive?
+                    Where should your RESHAA
+                    package arrive?
                   </p>
-
                 </div>
-
               </div>
 
-              <div className="space-y-5 mt-8">
-
+              <div
+                className="
+                  space-y-5
+                  mt-8
+                "
+              >
                 <div>
-
                   <label className="checkout-label">
                     Address
                   </label>
@@ -616,7 +1026,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                       resize-none
                     "
                   />
-
                 </div>
 
                 <div
@@ -626,9 +1035,7 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                     gap-5
                   "
                 >
-
                   <div>
-
                     <label className="checkout-label">
                       City
                     </label>
@@ -641,11 +1048,9 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                       placeholder="City"
                       className="checkout-input"
                     />
-
                   </div>
 
                   <div>
-
                     <label className="checkout-label">
                       State
                     </label>
@@ -658,11 +1063,9 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                       placeholder="State"
                       className="checkout-input"
                     />
-
                   </div>
 
                   <div>
-
                     <label className="checkout-label">
                       Pincode
                     </label>
@@ -677,13 +1080,9 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                       inputMode="numeric"
                       className="checkout-input"
                     />
-
                   </div>
-
                 </div>
-
               </div>
-
             </div>
 
             {/* ================= PAYMENT ================= */}
@@ -698,7 +1097,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 md:p-8
               "
             >
-
               <div
                 className="
                   flex
@@ -706,7 +1104,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                   gap-4
                 "
               >
-
                 <div
                   className="
                     w-10
@@ -724,7 +1121,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 </div>
 
                 <div>
-
                   <h2
                     className="
                       font-serif
@@ -744,9 +1140,7 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                   >
                     Choose how you'd like to pay.
                   </p>
-
                 </div>
-
               </div>
 
               <div
@@ -755,7 +1149,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                   mt-8
                 "
               >
-
                 {/* COD */}
 
                 <label
@@ -775,20 +1168,22 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                     }
                   `}
                 >
-
                   <input
                     type="radio"
                     name="payment"
                     value="cod"
-                    checked={paymentMethod === "cod"}
+                    checked={
+                      paymentMethod === "cod"
+                    }
                     onChange={(e) =>
-                      setPaymentMethod(e.target.value)
+                      setPaymentMethod(
+                        e.target.value
+                      )
                     }
                     className="accent-[#bd6670]"
                   />
 
                   <div className="flex-1">
-
                     <div
                       className="
                         flex
@@ -797,9 +1192,7 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                         gap-4
                       "
                     >
-
                       <div>
-
                         <p
                           className="
                             font-medium
@@ -818,17 +1211,13 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                         >
                           Pay when your order arrives.
                         </p>
-
                       </div>
 
                       <span className="text-xl">
                         ₹
                       </span>
-
                     </div>
-
                   </div>
-
                 </label>
 
                 {/* ONLINE */}
@@ -850,20 +1239,22 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                     }
                   `}
                 >
-
                   <input
                     type="radio"
                     name="payment"
                     value="online"
-                    checked={paymentMethod === "online"}
+                    checked={
+                      paymentMethod === "online"
+                    }
                     onChange={(e) =>
-                      setPaymentMethod(e.target.value)
+                      setPaymentMethod(
+                        e.target.value
+                      )
                     }
                     className="accent-[#bd6670]"
                   />
 
                   <div className="flex-1">
-
                     <div
                       className="
                         flex
@@ -872,9 +1263,7 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                         gap-4
                       "
                     >
-
                       <div>
-
                         <p
                           className="
                             font-medium
@@ -893,27 +1282,20 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                         >
                           UPI, cards & net banking.
                         </p>
-
                       </div>
 
                       <span className="text-xl">
                         ◇
                       </span>
-
                     </div>
-
                   </div>
-
                 </label>
-
               </div>
-
             </div>
-
           </div>
 
           {/* ================================================= */}
-          {/* RIGHT — ORDER SUMMARY */}
+          {/* ORDER SUMMARY */}
           {/* ================================================= */}
 
           <aside
@@ -929,7 +1311,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
               md:p-8
             "
           >
-
             <div
               className="
                 flex
@@ -937,7 +1318,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 justify-between
               "
             >
-
               <h2
                 className="
                   font-serif
@@ -956,7 +1336,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
               >
                 {cart.length} items
               </span>
-
             </div>
 
             {/* PRODUCTS */}
@@ -970,28 +1349,31 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 pr-1
               "
             >
-
               {cart.map((item) => {
-
-                const product = item.product;
+                const product =
+                  item.product;
 
                 const itemName =
-                  item.name || product?.name || "RESHAA Product";
+                  item.name ||
+                  product?.name ||
+                  "RESHAA Product";
 
                 const itemPrice =
-                  item.price || product?.price || 0;
+                  item.price ||
+                  product?.price ||
+                  0;
 
                 return (
                   <div
-                    key={item.id || item._id}
+                    key={
+                      item.id ||
+                      item._id
+                    }
                     className="
                       flex
                       gap-4
                     "
                   >
-
-                    {/* MINI IMAGE */}
-
                     <div
                       className="
                         w-16
@@ -1005,11 +1387,12 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                         overflow-hidden
                       "
                     >
-
-                      {product?.images?.length > 0 ? (
-
+                      {product?.images?.length >
+                      0 ? (
                         <img
-                          src={product.images[0]}
+                          src={
+                            product.images[0]
+                          }
                           alt={itemName}
                           className="
                             w-full
@@ -1017,9 +1400,7 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                             object-cover
                           "
                         />
-
                       ) : (
-
                         <span
                           className="
                             font-serif
@@ -1029,15 +1410,15 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                         >
                           RESHAA
                         </span>
-
                       )}
-
                     </div>
 
-                    {/* INFO */}
-
-                    <div className="flex-1 min-w-0">
-
+                    <div
+                      className="
+                        flex-1
+                        min-w-0
+                      "
+                    >
                       <div
                         className="
                           flex
@@ -1045,7 +1426,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                           gap-3
                         "
                       >
-
                         <p
                           className="
                             text-sm
@@ -1064,9 +1444,10 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                             shrink-0
                           "
                         >
-                          ₹{itemPrice * item.quantity}
+                          ₹
+                          {itemPrice *
+                            item.quantity}
                         </p>
-
                       </div>
 
                       <p
@@ -1076,7 +1457,10 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                           mt-1
                         "
                       >
-                        {item.color?.name || item.color || "—"} ·{" "}
+                        {item.color?.name ||
+                          item.color ||
+                          "—"}{" "}
+                        ·{" "}
                         {item.size || "—"}
                       </p>
 
@@ -1087,15 +1471,13 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                           mt-1
                         "
                       >
-                        Qty: {item.quantity}
+                        Qty:{" "}
+                        {item.quantity}
                       </p>
-
                     </div>
-
                   </div>
                 );
               })}
-
             </div>
 
             <div
@@ -1108,15 +1490,18 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
 
             {/* PRICE */}
 
-            <div className="space-y-3 text-sm">
-
+            <div
+              className="
+                space-y-3
+                text-sm
+              "
+            >
               <div
                 className="
                   flex
                   justify-between
                 "
               >
-
                 <span className="text-[#756b66]">
                   Subtotal
                 </span>
@@ -1124,7 +1509,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 <span>
                   ₹{subtotal}
                 </span>
-
               </div>
 
               <div
@@ -1133,7 +1517,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                   justify-between
                 "
               >
-
                 <span className="text-[#756b66]">
                   Shipping
                 </span>
@@ -1143,7 +1526,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                     ? "FREE"
                     : `₹${shipping}`}
                 </span>
-
               </div>
 
               {shipping === 0 && (
@@ -1157,7 +1539,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                   Free shipping unlocked ✦
                 </p>
               )}
-
             </div>
 
             <div
@@ -1177,7 +1558,6 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 items-center
               "
             >
-
               <span
                 className="
                   text-lg
@@ -1197,13 +1577,13 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
               >
                 ₹{total}
               </span>
-
             </div>
 
             {/* PLACE ORDER */}
 
             <button
               type="submit"
+              disabled={orderLoading}
               className="
                 w-full
                 h-14
@@ -1217,9 +1597,13 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 hover:bg-[#a95560]
                 hover:shadow-lg
                 transition
+                disabled:opacity-60
+                disabled:cursor-not-allowed
               "
             >
-              PLACE ORDER →
+              {orderLoading
+                ? "PLACING ORDER..."
+                : "PLACE ORDER →"}
             </button>
 
             <div
@@ -1233,21 +1617,15 @@ const [verifiedCustomer, setVerifiedCustomer] = useState(() => {
                 text-[#827872]
               "
             >
-
               <span>🔒</span>
 
               <span>
                 Secure checkout
               </span>
-
             </div>
-
           </aside>
-
         </form>
-
       </section>
-
     </main>
   );
 }

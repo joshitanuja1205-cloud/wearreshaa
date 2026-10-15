@@ -265,19 +265,19 @@ function Cart() {
                         justify-center
                       ">
 
-                        {item.image ? (
-
-                          <img
-                            src={item.image}
-                            alt={item.name}
-                            className="
-                              w-full
-                              h-full
-                              object-cover
-                            "
-                          />
-
-                        ) : (
+                        {item.customization?.reference?.url ? (
+  <img
+    src={item.customization.reference.url}
+    alt={item.name}
+    className="w-full h-full object-cover"
+  />
+) : item.image ? (
+  <img
+    src={item.image}
+    alt={item.name}
+    className="w-full h-full object-cover"
+  />
+) : (
 
                           <div className="
                             text-center
@@ -337,16 +337,6 @@ function Cart() {
                         ">
                           {item.name}
                         </h2>
-
-                         <h2 className="
-  font-serif
-  text-2xl
-  text-[#241f1d]
-  mt-2
-">
-  {item.name}
-</h2>
-
 {item.custom && (
   <p className="
     inline-block

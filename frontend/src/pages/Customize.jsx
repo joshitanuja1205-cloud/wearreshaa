@@ -1,7 +1,10 @@
+import api from "../services/api";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+
 function Customize() {
-    const navigate = useNavigate();
+  const navigate = useNavigate();
+
   const [color, setColor] = useState("Cream");
   const [size, setSize] = useState("M");
   const [quantity, setQuantity] = useState(1);
@@ -72,24 +75,27 @@ function Customize() {
     "Other",
   ];
 
+  // =========================================================
+  // FILE UPLOAD
+  // =========================================================
+
   const handleFileChange = (e) => {
-  const file = e.target.files[0];
+    const file = e.target.files[0];
 
-  if (!file) return;
+    if (!file) return;
 
-  const reader = new FileReader();
-
-  reader.onloadend = () => {
     setReference({
+      file: file,
       name: file.name,
       type: file.type,
       size: file.size,
-      preview: reader.result,
+      preview: URL.createObjectURL(file),
     });
   };
 
-  reader.readAsDataURL(file);
-};
+  // =========================================================
+  // DESIGN TYPE
+  // =========================================================
 
   const getDesignTypeName = () => {
     if (designType === "text") return "Text";
@@ -100,7 +106,11 @@ function Customize() {
     return "";
   };
 
-  const handleSubmit = () => {
+  // =========================================================
+  // SUBMIT
+  // =========================================================
+
+  const handleSubmit = async () => {
     if (!designType) {
       alert("Please choose what you're imagining first.");
       return;
@@ -134,97 +144,208 @@ function Customize() {
       return;
     }
 
-    const id =
-      "RS-" +
-      Date.now().toString().slice(-6);
+    try {
+      // =====================================================
+      // CREATE FORM DATA
+      // =====================================================
 
-    const request = {
-      id,
-      color,
-      size,
-      quantity,
-      designType: getDesignTypeName(),
-      text,
-      font,
-      idea,
-      vibe,
-      important,
-      placement,
-      reference: reference
-        ? {
-            name: reference.name,
-            type: reference.type,
-            size: reference.size,
-          }
-        : null,
-      price: 1299 * quantity,
-      createdAt: new Date().toISOString(),
-    };
-const existingCart =
-  JSON.parse(localStorage.getItem("reshAA-cart")) || [];
+      const formData = new FormData();
 
-const customCartItem = {
-  id: `custom-${id}`,
-  name: "RESHAA Custom Tee",
-  category: "Custom",
-  price: 1299,
-  quantity: quantity,
+      formData.append("color", color);
+      formData.append("size", size);
+      formData.append("quantity", quantity);
+      formData.append("designType", getDesignTypeName());
+      formData.append("text", text);
+      formData.append("font", font);
+      formData.append("idea", idea);
+      formData.append("vibe", vibe);
+      formData.append("important", important);
+      formData.append("placement", placement);
 
-  color: {
-    name: color,
-  },
+      // IMPORTANT:
+      // Send the actual File object
+      if (reference?.file) {
+        formData.append("reference", reference.file);
+      }
 
-  size: size,
+      // =====================================================
+      // SEND TO BACKEND
+      // =====================================================
 
-  custom: true,
-
-  customization: {
-    designType: getDesignTypeName(),
-    text,
-    font,
-    idea,
-    vibe,
-    important,
-    placement,
-    reference: reference
-      ? {
-          name: reference.name,
-          type: reference.type,
-          size: reference.size,
-          preview: reference.preview,
+      const response = await fetch(
+        "http://localhost:5001/api/customizations",
+        {
+          method: "POST",
+          body: formData,
         }
-      : null,
-  },
-};
+      );
 
-const updatedCart = [
-  ...existingCart,
-  customCartItem,
-];
+      const result = await response.json();
 
-localStorage.setItem(
-  "reshAA-cart",
-  JSON.stringify(updatedCart)
+if (!response.ok) {
+  throw new Error(
+    result.message || "Failed to submit customization"
+  );
+}
+
+console.log("✅ Customization saved:", result);
+
+// Use the real MongoDB ID
+const mongoId = result.customization._id;
+
+// Create a customer-friendly request ID
+const id = "RS-" + mongoId.slice(-6).toUpperCase();
+const customProductResponse = await api.get(
+  "/products/slug/custom-tee"
 );
 
-window.dispatchEvent(new Event("cartUpdated"));
-    localStorage.setItem(
-      "reshAA-custom-request",
-      JSON.stringify(request)
-    );
+if (
+  !customProductResponse.data?.success ||
+  !customProductResponse.data?.product
+) {
+  throw new Error("Custom Tee product could not be found.");
+}
 
-    setRequestId(id);
-    setSubmitted(true);
+const customProduct = customProductResponse.data.product;
 
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
+console.log("🆔 Request ID:", id);
+console.log("🍃 MongoDB ID:", mongoId);
+console.log(
+  "☁️ Cloudinary URL:",
+  result.customization.reference?.url
+);
+
+      // =====================================================
+      // LOCAL REQUEST DATA
+      // =====================================================
+
+      const request = {
+        id,
+        color,
+        size,
+        quantity,
+        designType: getDesignTypeName(),
+        text,
+        font,
+        idea,
+        vibe,
+        important,
+        placement,
+        reference: result.customization.reference
+  ? {
+      name: result.customization.reference.name,
+      type: result.customization.reference.type,
+      size: result.customization.reference.size,
+      url: result.customization.reference.url,
+      publicId: result.customization.reference.publicId,
+    }
+  : null,
+        price: 1299 * quantity,
+        createdAt: new Date().toISOString(),
+      };
+
+      // =====================================================
+      // ADD CUSTOM ITEM TO CART
+      // =====================================================
+
+      const existingCart =
+        JSON.parse(
+          localStorage.getItem("reshAA-cart")
+        ) || [];
+
+      const customCartItem = {
+        id: `custom-${id}`,
+        productId: customProduct._id,
+customizationId: result.customization._id,
+        name: "RESHAA Custom Tee",
+        category: "Custom",
+        price: 1299,
+        quantity: quantity,
+
+        color: {
+          name: color,
+          hex:
+    customProduct.colors?.find(
+      (c) => c.name === color
+    )?.hex || "",
+        },
+
+        size: size,
+
+        custom: true,
+
+        customization: {
+          designType: getDesignTypeName(),
+          text,
+          font,
+          idea,
+          vibe,
+          important,
+          placement,
+
+          reference: result.customization.reference
+  ? {
+      name: result.customization.reference.name,
+      type: result.customization.reference.type,
+      size: result.customization.reference.size,
+      url: result.customization.reference.url,
+      publicId: result.customization.reference.publicId,
+    }
+  : null,
+        },
+      };
+
+      const updatedCart = [
+        ...existingCart,
+        customCartItem,
+      ];
+
+      localStorage.setItem(
+        "reshAA-cart",
+        JSON.stringify(updatedCart)
+      );
+
+      window.dispatchEvent(
+        new Event("cartUpdated")
+      );
+
+      // =====================================================
+      // SAVE CUSTOM REQUEST LOCALLY
+      // =====================================================
+
+      localStorage.setItem(
+        "reshAA-custom-request",
+        JSON.stringify(request)
+      );
+
+      // =====================================================
+      // SUCCESS
+      // =====================================================
+
+      setRequestId(id);
+      setSubmitted(true);
+
+      window.scrollTo({
+        top: 0,
+        behavior: "smooth",
+      });
+
+    } catch (error) {
+      console.error(
+        "❌ Customization submission error:",
+        error
+      );
+
+      alert(
+        error.message ||
+          "Something went wrong while submitting your customization."
+      );
+    }
   };
 
-  /* =========================================================
-     SUCCESS SCREEN
-  ========================================================= */
+  // =========================================================
+  // SUCCESS SCREEN
+  // =========================================================
 
   if (submitted) {
     return (
@@ -306,7 +427,6 @@ window.dispatchEvent(new Event("cartUpdated"));
             </div>
 
           </div>
-
 
           {/* REQUEST SUMMARY */}
 
@@ -476,9 +596,7 @@ window.dispatchEvent(new Event("cartUpdated"));
   return (
     <main className="min-h-screen bg-[#f8f6f0] text-[#241f1d]">
 
-      {/* =====================================================
-          INTRO
-      ===================================================== */}
+      {/* INTRO */}
 
       <section className="px-4 sm:px-6 md:px-10 pt-8 sm:pt-12 pb-6">
 
@@ -524,10 +642,7 @@ window.dispatchEvent(new Event("cartUpdated"));
 
       </section>
 
-
-      {/* =====================================================
-          STEP 01
-      ===================================================== */}
+      {/* STEP 01 */}
 
       <section className="px-4 sm:px-6 md:px-10 py-4">
 
@@ -559,7 +674,6 @@ window.dispatchEvent(new Event("cartUpdated"));
           ">
             Choose your tee
           </h2>
-
 
           {/* COLOUR */}
 
@@ -616,7 +730,6 @@ window.dispatchEvent(new Event("cartUpdated"));
 
           </div>
 
-
           {/* SIZE + QUANTITY */}
 
           <div className="
@@ -663,7 +776,6 @@ window.dispatchEvent(new Event("cartUpdated"));
               </div>
 
             </div>
-
 
             <div>
 
@@ -725,10 +837,7 @@ window.dispatchEvent(new Event("cartUpdated"));
 
       </section>
 
-
-      {/* =====================================================
-          STEP 02
-      ===================================================== */}
+      {/* STEP 02 */}
 
       <section className="px-4 sm:px-6 md:px-10 py-4">
 
@@ -818,10 +927,7 @@ window.dispatchEvent(new Event("cartUpdated"));
 
       </section>
 
-
-      {/* =====================================================
-          STEP 03
-      ===================================================== */}
+      {/* STEP 03 */}
 
       {designType && (
 
@@ -865,7 +971,6 @@ window.dispatchEvent(new Event("cartUpdated"));
               The more you share, the better we can understand your vision.
             </p>
 
-
             {/* TEXT */}
 
             {(designType === "text" ||
@@ -899,7 +1004,6 @@ window.dispatchEvent(new Event("cartUpdated"));
                   />
 
                 </div>
-
 
                 <div>
 
@@ -941,7 +1045,6 @@ window.dispatchEvent(new Event("cartUpdated"));
               </div>
 
             )}
-
 
             {/* DESIGN UPLOAD */}
 
@@ -1007,7 +1110,6 @@ window.dispatchEvent(new Event("cartUpdated"));
 
             )}
 
-
             {/* IDEA */}
 
             {designType === "idea" && (
@@ -1021,10 +1123,7 @@ window.dispatchEvent(new Event("cartUpdated"));
                 <textarea
                   value={idea}
                   onChange={(e) => setIdea(e.target.value)}
-                  placeholder="
-Tell us what you're imagining — a mood, concept,
-illustration, quote, colours, anything that comes to mind...
-                  "
+                  placeholder="Tell us what you're imagining — a mood, concept, illustration, quote, colours, anything that comes to mind..."
                   className="
                     w-full
                     min-h-[130px]
@@ -1043,7 +1142,6 @@ illustration, quote, colours, anything that comes to mind...
               </div>
 
             )}
-
 
             {/* VIBE */}
 
@@ -1073,7 +1171,6 @@ illustration, quote, colours, anything that comes to mind...
               />
 
             </div>
-
 
             {/* TEXT + DESIGN IDEA */}
 
@@ -1107,7 +1204,6 @@ illustration, quote, colours, anything that comes to mind...
               </div>
 
             )}
-
 
             {/* IMPORTANT */}
 
@@ -1153,10 +1249,7 @@ illustration, quote, colours, anything that comes to mind...
 
       )}
 
-
-      {/* =====================================================
-          STEP 04
-      ===================================================== */}
+      {/* STEP 04 */}
 
       {designType && (
 
@@ -1226,10 +1319,7 @@ illustration, quote, colours, anything that comes to mind...
 
       )}
 
-
-      {/* =====================================================
-          STEP 05
-      ===================================================== */}
+      {/* STEP 05 */}
 
       {designType && (
 
@@ -1296,10 +1386,7 @@ illustration, quote, colours, anything that comes to mind...
 
       )}
 
-
-      {/* =====================================================
-          STEP 06
-      ===================================================== */}
+      {/* STEP 06 */}
 
       {designType && (
 
@@ -1340,7 +1427,6 @@ illustration, quote, colours, anything that comes to mind...
               Your request, at a glance.
             </h2>
 
-
             {/* BASIC SUMMARY */}
 
             <div className="
@@ -1372,7 +1458,6 @@ illustration, quote, colours, anything that comes to mind...
               />
 
             </div>
-
 
             {/* DETAILS */}
 
@@ -1440,7 +1525,6 @@ illustration, quote, colours, anything that comes to mind...
 
             </div>
 
-
             {/* PRICE + SUBMIT */}
 
             <div className="
@@ -1465,7 +1549,6 @@ illustration, quote, colours, anything that comes to mind...
                 </p>
 
               </div>
-
 
               <button
                 type="button"
@@ -1499,7 +1582,6 @@ illustration, quote, colours, anything that comes to mind...
     </main>
   );
 }
-
 
 /* =========================================================
    SUMMARY ITEM

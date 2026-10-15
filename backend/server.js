@@ -1,5 +1,10 @@
-require("dotenv").config();
-
+require("dotenv").config({
+  path: require("path").join(__dirname, ".env"),
+});
+console.log(
+  "📧 Server Resend key loaded:",
+  Boolean(process.env.RESEND_API_KEY)
+);
 const app = require("./src/app");
 const connectDB = require("./src/config/db");
 

@@ -10,16 +10,34 @@ const userSchema = new mongoose.Schema(
 
     email: {
       type: String,
-      required: true,
       unique: true,
+      sparse: true,
       lowercase: true,
       trim: true,
     },
 
-    password: {
+    phone: {
       type: String,
-      required: true,
-      minlength: 6,
+      unique: true,
+      sparse: true,
+      trim: true,
+    },
+
+    // Google account ID
+    googleId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+
+    isEmailVerified: {
+      type: Boolean,
+      default: false,
+    },
+
+    isPhoneVerified: {
+      type: Boolean,
+      default: false,
     },
 
     role: {

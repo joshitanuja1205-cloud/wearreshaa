@@ -1,14 +1,14 @@
+
 const Order = require("../models/Order");
 const Cart = require("../models/Cart");
+const User = require("../models/User");
+const { sendOrderEmails } = require("../services/emailService");
 
 // ================= CREATE ORDER =================
 
 const createOrder = async (req, res) => {
   try {
-    const {
-      shippingAddress,
-      paymentMethod,
-    } = req.body;
+    const { shippingAddress, paymentMethod } = req.body;
 
     // Check required fields
     if (!shippingAddress || !paymentMethod) {
@@ -33,6 +33,7 @@ const createOrder = async (req, res) => {
     // Prepare order items
     const orderItems = cart.items.map((item) => ({
       product: item.product._id,
+      customizationId: item.customizationId || null,
       name: item.product.name,
       price: item.product.price,
       quantity: item.quantity,
@@ -45,18 +46,17 @@ const createOrder = async (req, res) => {
 
     // Calculate subtotal
     const subtotal = orderItems.reduce(
-      (total, item) =>
-        total + item.price * item.quantity,
+      (total, item) => total + item.price * item.quantity,
       0
     );
 
-    // Shipping fee
+    // Shipping fee: free for orders of ₹999 or more
     const shippingFee = subtotal >= 999 ? 0 : 99;
 
-    // Total
+    // Calculate total
     const totalAmount = subtotal + shippingFee;
 
-    // Create order
+    // Save order to MongoDB
     const order = await Order.create({
       user: req.user._id,
       items: orderItems,
@@ -67,11 +67,30 @@ const createOrder = async (req, res) => {
       paymentMethod,
     });
 
-    // Clear cart
+    // Clear cart after successfully saving the order
     cart.items = [];
     await cart.save();
 
-    res.status(201).json({
+    // Trigger order emails after saving the order.
+    // Email errors must not fail checkout.
+    const customerId = req.user._id;
+    const orderForEmail = order;
+
+    setImmediate(async () => {
+      try {
+        const customer = await User.findById(customerId).select("email");
+
+        await sendOrderEmails(orderForEmail, customer?.email);
+      } catch (emailError) {
+        console.error(
+          "Order email processing failed:",
+          emailError.message
+        );
+      }
+    });
+
+    // Return successful checkout response
+    return res.status(201).json({
       success: true,
       message: "Order created successfully",
       order,
@@ -79,7 +98,7 @@ const createOrder = async (req, res) => {
   } catch (error) {
     console.error("Create order error:", error.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to create order",
     });
@@ -96,7 +115,7 @@ const getMyOrders = async (req, res) => {
       .populate("items.product")
       .sort({ createdAt: -1 });
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       count: orders.length,
       orders,
@@ -104,12 +123,13 @@ const getMyOrders = async (req, res) => {
   } catch (error) {
     console.error("Get orders error:", error.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch orders",
     });
   }
 };
+
 // ================= GET ORDER BY ID =================
 
 const getOrderById = async (req, res) => {
@@ -126,14 +146,14 @@ const getOrderById = async (req, res) => {
       });
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       success: true,
       order,
     });
   } catch (error) {
     console.error("Get order error:", error.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Failed to fetch order",
     });

@@ -1,13 +1,19 @@
+
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
-// ================= AUTHENTICATE USER =================
+// =============================================
+// AUTHENTICATE USER
+// =============================================
 
 const protect = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
 
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    if (
+      !authHeader ||
+      !authHeader.startsWith("Bearer ")
+    ) {
       return res.status(401).json({
         success: false,
         message: "Not authorized. Please login.",
@@ -16,9 +22,14 @@ const protect = async (req, res, next) => {
 
     const token = authHeader.split(" ")[1];
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET
+    );
 
-    const user = await User.findById(decoded.id).select("-password");
+    const user = await User.findById(
+      decoded.id
+    ).select("-password");
 
     if (!user) {
       return res.status(401).json({
@@ -31,7 +42,10 @@ const protect = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error("Auth middleware error:", error.message);
+    console.error(
+      "Auth middleware error:",
+      error.message
+    );
 
     return res.status(401).json({
       success: false,
@@ -40,6 +54,29 @@ const protect = async (req, res, next) => {
   }
 };
 
+// =============================================
+// ADMIN-ONLY AUTHORIZATION
+// =============================================
+
+const adminOnly = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required.",
+    });
+  }
+
+  if (req.user.role !== "admin") {
+    return res.status(403).json({
+      success: false,
+      message: "Access denied. Admins only.",
+    });
+  }
+
+  next();
+};
+
 module.exports = {
   protect,
+  adminOnly,
 };

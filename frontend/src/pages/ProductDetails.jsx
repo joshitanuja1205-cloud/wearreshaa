@@ -281,34 +281,46 @@ function ProductDetails() {
     const existingCart =
       JSON.parse(localStorage.getItem("reshAA-cart")) || [];
 
-    const existingItemIndex = existingCart.findIndex(
-      (item) =>
-        item.product._id === product._id &&
-        item.size === selectedSize &&
-        item.color.name === selectedColor.name
+    const newItem = {
+      id: `${product._id}-${selectedSize}-${selectedColor.name}`,
+      productId: product._id,
+      name: product.name,
+      price: product.price,
+      image: product.images?.[0] || "",
+      category: product.category,
+      size: selectedSize,
+      color: {
+        name: selectedColor.name,
+        hex: selectedColor.hex,
+      },
+      quantity,
+    };
+
+    const existingIndex = existingCart.findIndex(
+      (item) => item.id === newItem.id
     );
 
-    if (existingItemIndex !== -1) {
-      existingCart[existingItemIndex].quantity += quantity;
+    let updatedCart;
+
+    if (existingIndex !== -1) {
+      updatedCart = [...existingCart];
+
+      updatedCart[existingIndex].quantity += quantity;
     } else {
-      existingCart.push({
-        _id: `${product._id}-${selectedSize}-${selectedColor.name}`,
-        product: product,
-        quantity: quantity,
-        size: selectedSize,
-        color: {
-          name: selectedColor.name,
-          hex: selectedColor.hex,
-        },
-      });
+      updatedCart = [
+        ...existingCart,
+        newItem,
+      ];
     }
 
     localStorage.setItem(
       "reshAA-cart",
-      JSON.stringify(existingCart)
+      JSON.stringify(updatedCart)
     );
 
-    window.dispatchEvent(new Event("cartUpdated"));
+    window.dispatchEvent(
+      new Event("cartUpdated")
+    );
 
     navigate("/checkout");
   } catch (error) {

@@ -9,7 +9,11 @@ const orderItemSchema = new mongoose.Schema(
       ref: "Product",
       required: true,
     },
-
+customizationId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "Customization",
+  default: null,
+},
     name: {
       type: String,
       required: true,

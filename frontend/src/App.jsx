@@ -18,8 +18,13 @@ import Wishlist from "./components/Wishlist";
 import Checkout from "./components/Checkout";
 import OrderSuccess from "./components/OrderSuccess";
 import Customize from "./pages/Customize";
-
-
+import PhoneLogin from "./pages/PhoneLogin";
+import MyAccount from "./pages/MyAccount";
+import GoogleSuccess from "./pages/GoogleSuccess";
+import AdminOrders from "./pages/AdminOrders";
+import AdminOrderDetails from "./pages/AdminOrderDetails";
+import AdminRoute from "./components/AdminRoute";
+import AdminDashboard from "./pages/AdminDashboard";
 function Home() {
   return (
     <>
@@ -122,11 +127,24 @@ function App() {
           path="/customize"
           element={<Customize />}
         />
+       <Route path="/phone-login" element={<PhoneLogin />} />
 
+<Route path="/account" element={<MyAccount />} />
+
+<Route
+  path="/google-success"
+  element={<GoogleSuccess />}
+/>
+<Route element={<AdminRoute />}>
+<Route path="/admin" element={<AdminDashboard />} />
+  <Route path="/admin/orders" element={<AdminOrders />} />
+  <Route
+    path="/admin/orders/:orderId"
+    element={<AdminOrderDetails />}
+  />
+</Route>
       </Routes>
-
     </BrowserRouter>
   );
 }
-
 export default App;
